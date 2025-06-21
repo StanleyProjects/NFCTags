@@ -7,9 +7,10 @@ import kotlinx.coroutines.flow.StateFlow
 
 interface NFCTags {
     enum class State {
-        Started,
+        Searching,
         Waiting,
         Stopped,
+        Connected,
     }
 
     sealed interface Event {
@@ -20,5 +21,6 @@ interface NFCTags {
     val events: SharedFlow<Event>
 
     fun start(activity: ComponentActivity)
+    fun connect(tag: Tag)
     fun stop()
 }
