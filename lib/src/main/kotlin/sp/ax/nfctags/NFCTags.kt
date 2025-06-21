@@ -10,17 +10,19 @@ interface NFCTags {
         Searching,
         Waiting,
         Stopped,
-        Connected,
+        Following,
     }
 
     sealed interface Event {
         class OnTag(val tag: Tag) : Event
+        class OnResponse(val result: Result<ByteArray>) : Event
     }
 
     val states: StateFlow<State>
     val events: SharedFlow<Event>
 
     fun start(activity: ComponentActivity)
-    fun connect(tag: Tag)
+    fun follow(tag: Tag)
+    fun transceive(bytes: ByteArray)
     fun stop()
 }

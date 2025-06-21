@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
@@ -38,8 +37,10 @@ class RealNFCTags(
     private val _states = MutableStateFlow<InternalState?>(null)
     override val states = _states.map { state ->
         when (state) {
-            InternalState.Searching -> NFCTags.State.Searching
-            is InternalState.Connected -> NFCTags.State.Connected
+            is InternalState.Searching -> when (state.tt) {
+                null -> NFCTags.State.Searching
+                else -> NFCTags.State.Following
+            }
             InternalState.Waiting -> NFCTags.State.Waiting
             null -> NFCTags.State.Stopped
         }
@@ -88,16 +89,11 @@ class RealNFCTags(
                     mutex.withLock {
                         if (isEnabled) {
                             if (_states.value == InternalState.Waiting) {
-                                _states.value = InternalState.Searching
+                                _states.value = InternalState.Searching(tt = null)
                             }
                         } else {
-                            when (_states.value) {
-                                is InternalState.Connected, InternalState.Searching -> {
-                                    _states.value = InternalState.Waiting
-                                }
-                                else -> {
-                                    // noop
-                                }
+                            if (_states.value != null) {
+                                _states.value = InternalState.Waiting
                             }
                         }
                     }
@@ -110,17 +106,12 @@ class RealNFCTags(
                 callbackFlow<Unit> {
                     println("[RealNFCTags]:on:resume: ${_states.value}") // todo
                     if (_states.value == InternalState.Waiting && adapter.isEnabled) {
-                        _states.value = InternalState.Searching
+                        _states.value = InternalState.Searching(tt = null)
                     }
                     awaitClose {
                         println("[RealNFCTags]:on:pause: ${_states.value}") // todo
-                        when (_states.value) {
-                            is InternalState.Connected, InternalState.Searching -> {
-                                _states.value = InternalState.Waiting
-                            }
-                            else -> {
-                                // noop
-                            }
+                        if (_states.value != null) {
+                            _states.value = InternalState.Waiting
                         }
                     }
                 }.collect()
@@ -128,7 +119,10 @@ class RealNFCTags(
         }
         val callback = NfcAdapter.ReaderCallback { tag ->
             coroutineScope.launch {
-                _events.emit(NFCTags.Event.OnTag(tag = tag))
+                val state = _states.value
+                if (state is InternalState.Searching && state.tt == null) {
+                    _events.emit(NFCTags.Event.OnTag(tag = tag))
+                }
             }
         }
         val flags = NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK
@@ -138,17 +132,21 @@ class RealNFCTags(
                 val oldState = state
                 state = newState
                 println("[RealNFCTags]:state: $oldState -> $newState") // todo
-                if (oldState == InternalState.Searching) {
-                    if (newState != InternalState.Searching) {
+                if (oldState is InternalState.Searching) {
+                    if (newState !is InternalState.Searching) {
                         adapter.disableReaderMode(activity)
                     }
                 } else {
-                    if (newState == InternalState.Searching) {
-                        adapter.enableReaderMode(activity, callback, flags, null)
+                    if (newState is InternalState.Searching) {
+                        if (adapter.isEnabled) {
+                            adapter.enableReaderMode(activity, callback, flags, null)
+                        } else {
+                            _states.value = InternalState.Waiting
+                        }
                     }
                 }
-                if (oldState is InternalState.Connected) {
-                    if (newState !is InternalState.Connected) {
+                if (oldState is InternalState.Searching && oldState.tt != null) {
+                    if (newState !is InternalState.Searching || newState.tt == null || !newState.tt.tag.id.contentEquals(oldState.tt.tag.id)) {
                         runCatching {
                             oldState.tt.close()
                         }
@@ -160,7 +158,7 @@ class RealNFCTags(
             }
         }
         if (adapter.isEnabled) {
-            _states.value = InternalState.Searching
+            _states.value = InternalState.Searching(tt = null)
         } else {
             _states.value = InternalState.Waiting
         }
@@ -172,17 +170,36 @@ class RealNFCTags(
         }
     }
 
-    override fun connect(tag: Tag) {
+    override fun follow(tag: Tag) {
         coroutineScope.launch {
             mutex.withLock {
                 withContext(default) {
-                    if (_states.value == InternalState.Searching) {
+                    val state = _states.value
+                    if (state is InternalState.Searching && state.tt == null) {
                         runCatching {
-                            val tt = IsoDep.get(tag)
-                            tt.connect()
-                            tt
+                            IsoDep.get(tag)
                         }.onSuccess { tt ->
-                            _states.value = InternalState.Connected(tt = tt)
+                            _states.value = InternalState.Searching(tt = tt)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun transceive(bytes: ByteArray) {
+        coroutineScope.launch {
+            mutex.withLock {
+                withContext(default) {
+                    val state = _states.value
+                    if (state is InternalState.Searching && state.tt != null) {
+                        val result = runCatching {
+                            if (!state.tt.isConnected) state.tt.connect()
+                            state.tt.transceive(bytes)
+                        }
+                        _events.emit(NFCTags.Event.OnResponse(result = result))
+                        if (result.isFailure) {
+                            _states.value = InternalState.Searching(tt = null)
                         }
                     }
                 }
