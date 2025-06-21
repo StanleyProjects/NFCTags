@@ -1,5 +1,6 @@
 package sp.sample.nfctags
 
+import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -28,7 +29,6 @@ import kotlin.coroutines.CoroutineContext
 class RealNFCTags(
     private val coroutineScope: CoroutineScope,
     private val default: CoroutineContext,
-    private val activity: ComponentActivity,
 ) : NFCTags {
     private val _states = MutableStateFlow<NFCTags.State>(NFCTags.State.Stopped)
     override val states = _states.asStateFlow()
@@ -43,6 +43,7 @@ class RealNFCTags(
             val receivers = object : BroadcastReceiver() {
                 override fun onReceive(context: Context?, intent: Intent?) {
                     val state = intent?.getIntExtra(NfcAdapter.EXTRA_ADAPTER_STATE, -1)
+                    println("[RealNFCTags]:NfcAdapter:state: $state") // todo
                     when (state) {
                         NfcAdapter.STATE_ON -> trySend(true)
                         NfcAdapter.STATE_TURNING_OFF -> trySend(false)
@@ -65,54 +66,51 @@ class RealNFCTags(
         }
     }
 
-    init {
-        val context: Context = activity
-        val lifecycle = activity.lifecycle
+    private fun start(activity: Activity, lifecycle: Lifecycle) {
         coroutineScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                receivers(context = context).collect { isEnabled ->
+                receivers(context = activity).collect { isEnabled ->
+                    println("[RealNFCTags]:isEnabled: $isEnabled") // todo
                     if (isEnabled) {
-                        val state = _states.value
-                        if (state == NFCTags.State.Waiting) {
+                        if (_states.value == NFCTags.State.Waiting) {
                             _states.value = NFCTags.State.Started
                         }
                     } else {
-                        val state = _states.value
-                        if (state == NFCTags.State.Started) {
+                        if (_states.value == NFCTags.State.Started) {
                             _states.value = NFCTags.State.Waiting
                         }
                     }
                 }
             }
         }
+        val adapter = NfcAdapter.getDefaultAdapter(activity)
         coroutineScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 callbackFlow<Unit> {
-                    val state = _states.value
-                    if (state == NFCTags.State.Waiting) {
+                    println("[RealNFCTags]:on:resume: ${_states.value}") // todo
+                    if (_states.value == NFCTags.State.Waiting && adapter.isEnabled) {
                         _states.value = NFCTags.State.Started
                     }
                     awaitClose {
-                        if (state == NFCTags.State.Started) {
+                        println("[RealNFCTags]:on:pause: ${_states.value}") // todo
+                        if (_states.value == NFCTags.State.Started) {
                             _states.value = NFCTags.State.Waiting
                         }
                     }
                 }.collect()
             }
         }
-        val adapter = NfcAdapter.getDefaultAdapter(activity)
-        val flags = NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK
         val callback = NfcAdapter.ReaderCallback { tag ->
             coroutineScope.launch {
-                mutex.withLock {
-                    withContext(default) {
-                        _events.emit(NFCTags.Event.OnTag(tag = tag))
-                    }
+                withContext(default) {
+                    _events.emit(NFCTags.Event.OnTag(tag = tag))
                 }
             }
         }
+        val flags = NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK
         coroutineScope.launch {
             _states.collect { state ->
+                println("[RealNFCTags]:state: $state") // todo
                 when (state) {
                     NFCTags.State.Started -> {
                         adapter.enableReaderMode(activity, callback, flags, null)
@@ -123,23 +121,16 @@ class RealNFCTags(
                 }
             }
         }
+        if (adapter.isEnabled) {
+            _states.value = NFCTags.State.Started
+        } else {
+            _states.value = NFCTags.State.Waiting
+        }
     }
 
-    override fun start() {
-        coroutineScope.launch {
-            mutex.withLock {
-                withContext(default) {
-                    val state = _states.value
-                    if (state == NFCTags.State.Stopped) {
-                        val adapter = NfcAdapter.getDefaultAdapter(activity)
-                        if (adapter.isEnabled) {
-                            _states.value = NFCTags.State.Started
-                        } else {
-                            _states.value = NFCTags.State.Waiting
-                        }
-                    }
-                }
-            }
+    override fun start(activity: ComponentActivity) {
+        if (_states.value == NFCTags.State.Stopped) {
+            start(activity = activity, lifecycle = activity.lifecycle)
         }
     }
 

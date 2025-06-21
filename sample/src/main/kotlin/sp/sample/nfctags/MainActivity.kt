@@ -39,8 +39,8 @@ internal class MainActivity : ComponentActivity() {
         val tags = RealNFCTags(
             coroutineScope = lifecycle.coroutineScope,
             default = Dispatchers.Default,
-            activity = this,
         )
+        val activity: ComponentActivity = this
         lifecycle.coroutineScope.launch {
             tags.states.collect { state ->
                 println("[MainActivity]:nfc:state: $state") // todo
@@ -60,7 +60,7 @@ internal class MainActivity : ComponentActivity() {
                     NFCTags.State.Stopped -> {
                         button.text = "start"
                         button.setOnClickListener { _ ->
-                            tags.start()
+                            tags.start(activity = activity)
                         }
                     }
                 }
