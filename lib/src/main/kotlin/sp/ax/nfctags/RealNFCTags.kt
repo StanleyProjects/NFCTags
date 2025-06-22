@@ -207,6 +207,19 @@ class RealNFCTags(
         }
     }
 
+    override fun unfollow() {
+        coroutineScope.launch {
+            mutex.withLock {
+                withContext(default) {
+                    val state = _states.value
+                    if (state is InternalState.Searching && state.tt != null) {
+                        _states.value = InternalState.Searching(tt = null)
+                    }
+                }
+            }
+        }
+    }
+
     override fun stop() {
         coroutineScope.launch {
             mutex.withLock {

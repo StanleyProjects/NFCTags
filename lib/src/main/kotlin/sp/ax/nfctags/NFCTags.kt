@@ -24,5 +24,6 @@ interface NFCTags {
     fun start(activity: ComponentActivity)
     fun follow(tag: Tag)
     fun transceive(bytes: ByteArray)
+    fun unfollow()
     fun stop()
 }
