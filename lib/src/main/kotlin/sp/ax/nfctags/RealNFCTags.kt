@@ -1,21 +1,15 @@
 package sp.ax.nfctags
 
 import android.app.Activity
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.IsoDep
-import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -51,40 +45,12 @@ class RealNFCTags(
 
     private val mutex = Mutex()
 
-    private fun receivers(context: Context): Flow<Boolean> {
-        return callbackFlow {
-            val receivers = object : BroadcastReceiver() {
-                override fun onReceive(context: Context?, intent: Intent?) {
-                    val state = intent?.getIntExtra(NfcAdapter.EXTRA_ADAPTER_STATE, -1)
-                    println("[RealNFCTags]:NfcAdapter:state: $state") // todo
-                    when (state) {
-                        NfcAdapter.STATE_ON -> trySend(true)
-                        NfcAdapter.STATE_TURNING_OFF -> trySend(false)
-                    }
-                }
-            }
-            val filters = IntentFilter(NfcAdapter.ACTION_ADAPTER_STATE_CHANGED)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(
-                    receivers,
-                    filters,
-                    Context.RECEIVER_NOT_EXPORTED,
-                )
-            } else {
-                context.registerReceiver(receivers, filters)
-            }
-            awaitClose {
-                context.unregisterReceiver(receivers)
-            }
-        }
-    }
-
     private fun start(activity: Activity, lifecycle: Lifecycle) {
         val job = SupervisorJob()
         val coroutineScope = CoroutineScope(default + job)
         coroutineScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                receivers(context = activity).collect { isEnabled ->
+                NFCTagsReceivers.adapter(context = activity).collect { isEnabled ->
                     println("[RealNFCTags]:isEnabled: $isEnabled") // todo
                     mutex.withLock {
                         if (isEnabled) {
@@ -201,6 +167,19 @@ class RealNFCTags(
                         if (result.isFailure) {
                             _states.value = InternalState.Searching(tt = null)
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun unfollow() {
+        coroutineScope.launch {
+            mutex.withLock {
+                withContext(default) {
+                    val state = _states.value
+                    if (state is InternalState.Searching && state.tt != null) {
+                        _states.value = InternalState.Searching(tt = null)
                     }
                 }
             }

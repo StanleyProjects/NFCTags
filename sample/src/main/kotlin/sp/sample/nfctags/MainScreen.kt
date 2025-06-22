@@ -1,6 +1,5 @@
 package sp.sample.nfctags
 
-import android.nfc.Tag
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
@@ -31,7 +30,20 @@ import sp.kx.bytes.toHEX
 internal fun MainScreen() {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val tags = App.tags
-    val state: NFCTags.State = tags.states.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED).value
+    val state = tags.states.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED).value
+    LaunchedEffect(state) {
+        when (state) {
+            NFCTags.State.Following -> {
+                val ints = intArrayOf(0x30, 0x00)
+                val bytes = ints.map { it.toByte() }.toByteArray()
+                println("[MainScreen]:transceive: ${bytes.toHEX()}") // todo
+                tags.transceive(bytes = bytes)
+            }
+            else -> {
+                // todo
+            }
+        }
+    }
     val tagState = remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -46,6 +58,7 @@ internal fun MainScreen() {
                         event.result.fold(
                             onSuccess = { bytes ->
                                 println("[MainScreen]:nfc:event:response: ${bytes.toHEX()}") // todo
+                                tags.unfollow()
                             },
                             onFailure = { error ->
                                 println("[MainScreen]:response:error(${error::class.java.name}): $error") // todo
@@ -97,36 +110,6 @@ internal fun MainScreen() {
                     .height(48.dp)
                     .wrapContentSize(),
                 text = if (state == NFCTags.State.Following) tagState.value.orEmpty() else "",
-            )
-            BasicText(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .clickable(enabled = state == NFCTags.State.Following) {
-                        when (state) {
-                            NFCTags.State.Following -> {
-//                                val bytes = ByteArray(18)
-//                                bytes[0] = 0x12.toByte()
-//                                bytes[1] = 0xb0.toByte()
-//                                bytes[2] = 0x81.toByte()
-//                                val ints = intArrayOf(
-//                                    0x00, 0xA4, 0x04, 0x00,
-//                                    0x0E, 0x32, 0x50, 0x41,
-//                                    0x59, 0x2E, 0x53, 0x59,
-//                                    0x53, 0x2E, 0x44, 0x44,
-//                                    0x46, 0x30, 0x31, 0x00,
-//                                )
-                                val ints = intArrayOf(0x30, 0x00)
-                                val bytes = ints.map { it.toByte() }.toByteArray()
-                                tags.transceive(bytes = bytes)
-                            }
-                            else -> {
-                                // noop
-                            }
-                        }
-                    }
-                    .wrapContentSize(),
-                text = "transceive",
             )
         }
     }
