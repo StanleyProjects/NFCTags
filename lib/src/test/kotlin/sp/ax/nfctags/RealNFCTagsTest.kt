@@ -8,9 +8,13 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectIndexed
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -41,35 +45,60 @@ internal class RealNFCTagsTest {
         }
     }
 
+    private suspend fun onRealNFCTags(
+        scheduler: TestCoroutineScheduler,
+        block: suspend (NFCTags) -> Unit,
+    ) {
+        val job = SupervisorJob()
+        val main: CoroutineContext = StandardTestDispatcher(scheduler, "real:tags:main")
+        val default: CoroutineContext = StandardTestDispatcher(scheduler, "real:tags:default")
+        val tags = RealNFCTags(
+            coroutineScope = CoroutineScope(main + job),
+            default = default + job,
+        )
+        block(tags)
+        job.cancel()
+    }
+
+    private suspend fun onNfcAdapter(
+        context: Context = RuntimeEnvironment.getApplication(),
+        isEnabled: Boolean = true,
+        block: suspend (NfcAdapter) -> Unit,
+    ) {
+        ShadowNfcAdapter.setNfcHardwareExists(true)
+        Shadows.shadowOf(context.packageManager).setSystemFeature(PackageManager.FEATURE_NFC, true)
+        val adapter = NfcAdapter.getDefaultAdapter(context) ?: TODO("RealNFCTagsTest:onNfcAdapter:no adapter!")
+        Shadows.shadowOf(adapter).setEnabled(isEnabled)
+        block(adapter)
+    }
+
     @Test
     fun startTest() {
         runTest(timeout = 6.seconds) {
-            val application = RuntimeEnvironment.getApplication()
-            ShadowNfcAdapter.setNfcHardwareExists(true)
-            Shadows.shadowOf(application.packageManager).setSystemFeature(PackageManager.FEATURE_NFC, true)
-            val adapter = NfcAdapter.getDefaultAdapter(application) ?: TODO("RealNFCTagsTest:startTest:no adapter!")
-            Shadows.shadowOf(adapter).setEnabled(true)
-            val main: CoroutineContext = StandardTestDispatcher(testScheduler, "real:tags:main")
-            val default: CoroutineContext = StandardTestDispatcher(testScheduler, "real:tags:default")
-            val job = SupervisorJob()
-            val tags = RealNFCTags(
-                coroutineScope = CoroutineScope(main + job),
-                default = default + job,
-            )
-            assertEquals("before start", NFCTags.State.Stopped, tags.states.value)
-            val controller = Robolectric.buildActivity(MockActivity::class.java)
-            val activity = controller.get()
-            controller.start()
-            controller.resume()
-            launch(CoroutineName("before start")) {
-                tags.states.takeWhile { state ->
-                    state != NFCTags.State.Searching
-                }.collect()
-            }.join {
-                tags.start(activity = activity)
+            onNfcAdapter { _ ->
+                val controller = Robolectric.buildActivity(MockActivity::class.java)
+                    .start()
+                    .resume()
+                onRealNFCTags(testScheduler) { tags ->
+                    launch(CoroutineName("events")) {
+                        tags.events.take(1).collect { event ->
+                            error("Event $event is unexpected!")
+                        }
+                    }.cancel {
+                        launch(CoroutineName("states")) {
+                            tags.states.take(2).collectIndexed { index, state ->
+                                when (index) {
+                                    0 -> assertEquals(NFCTags.State.Stopped, state)
+                                    1 -> assertEquals(NFCTags.State.Searching, state)
+                                    else -> error("Index $index is unexpected!")
+                                }
+                            }
+                        }.join {
+                            tags.start(activity = controller.get())
+                        }
+                    }
+                }
             }
-            TODO("RealNFCTagsTest:startTest")
-            job.cancel()
         }
     }
 }
