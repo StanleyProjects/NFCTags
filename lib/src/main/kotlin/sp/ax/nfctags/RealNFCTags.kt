@@ -85,9 +85,16 @@ class RealNFCTags(
         }
         val callback = NfcAdapter.ReaderCallback { tag ->
             coroutineScope.launch {
-                val state = _states.value
-                if (state is InternalState.Searching && state.tt == null) {
-                    _events.emit(NFCTags.Event.OnTag(tag = tag))
+                mutex.withLock {
+                    val state = _states.value
+                    if (state is InternalState.Searching && state.tt == null) {
+                        runCatching {
+                            if (tag.id == null) TODO("RealNFCTags:tag:no id!")
+                            IsoDep.get(tag)
+                        }.onSuccess { tt ->
+                            _states.value = InternalState.Searching(tt = tt)
+                        }
+                    }
                 }
             }
         }
@@ -102,19 +109,24 @@ class RealNFCTags(
                     if (newState !is InternalState.Searching) {
                         adapter.disableReaderMode(activity)
                     }
+                    if (oldState.tt == null) {
+                        if (newState is InternalState.Searching && newState.tt != null) {
+                            _events.emit(NFCTags.Event.OnFollowing(id = newState.tt.tag.id))
+                        }
+                    } else {
+                        val tt = (newState as? InternalState.Searching)?.tt
+                        if (tt == null || !tt.tag.id.contentEquals(oldState.tt.tag.id)) {
+                            runCatching {
+                                oldState.tt.close()
+                            }
+                        }
+                    }
                 } else {
                     if (newState is InternalState.Searching) {
                         if (adapter.isEnabled) {
                             adapter.enableReaderMode(activity, callback, flags, null)
                         } else {
                             _states.value = InternalState.Waiting
-                        }
-                    }
-                }
-                if (oldState is InternalState.Searching && oldState.tt != null) {
-                    if (newState !is InternalState.Searching || newState.tt == null || !newState.tt.tag.id.contentEquals(oldState.tt.tag.id)) {
-                        runCatching {
-                            oldState.tt.close()
                         }
                     }
                 }
@@ -133,23 +145,6 @@ class RealNFCTags(
     override fun start(activity: ComponentActivity) {
         if (_states.value == null) {
             start(activity = activity, lifecycle = activity.lifecycle)
-        }
-    }
-
-    override fun follow(tag: Tag) {
-        coroutineScope.launch {
-            mutex.withLock {
-                withContext(default) {
-                    val state = _states.value
-                    if (state is InternalState.Searching && state.tt == null) {
-                        runCatching {
-                            IsoDep.get(tag)
-                        }.onSuccess { tt ->
-                            _states.value = InternalState.Searching(tt = tt)
-                        }
-                    }
-                }
-            }
         }
     }
 

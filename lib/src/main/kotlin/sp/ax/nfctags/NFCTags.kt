@@ -1,6 +1,5 @@
 package sp.ax.nfctags
 
-import android.nfc.Tag
 import androidx.activity.ComponentActivity
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,7 +13,7 @@ interface NFCTags {
     }
 
     sealed interface Event {
-        class OnTag(val tag: Tag) : Event
+        class OnFollowing(val id: ByteArray) : Event
         class OnResponse(val result: Result<ByteArray>) : Event
     }
 
@@ -22,7 +21,6 @@ interface NFCTags {
     val events: SharedFlow<Event>
 
     fun start(activity: ComponentActivity)
-    fun follow(tag: Tag)
     fun transceive(bytes: ByteArray)
     fun unfollow()
     fun stop()
