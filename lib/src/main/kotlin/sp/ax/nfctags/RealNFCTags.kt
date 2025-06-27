@@ -135,7 +135,7 @@ class RealNFCTags(
                 }
             }
         }
-        if (adapter.isEnabled) {
+        if (activity.lifecycle.currentState >= Lifecycle.State.RESUMED && adapter.isEnabled) {
             _states.value = InternalState.Searching(tt = null)
         } else {
             _states.value = InternalState.Waiting
