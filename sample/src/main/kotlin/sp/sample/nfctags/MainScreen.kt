@@ -31,6 +31,7 @@ internal fun MainScreen() {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val tags = App.tags
     val state = tags.states.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED).value
+    val tagState = remember { mutableStateOf<String?>(null) }
     LaunchedEffect(state) {
         when (state) {
             NFCTags.State.Following -> {
@@ -40,19 +41,17 @@ internal fun MainScreen() {
                 tags.transceive(bytes = bytes)
             }
             else -> {
-                // todo
+                tagState.value = null
             }
         }
     }
-    val tagState = remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             tags.events.collect { event ->
                 when (event) {
-                    is NFCTags.Event.OnTag -> {
-                        println("[MainScreen]:nfc:event:tag: ${event.tag.id.toHEX()}") // todo
-                        tagState.value = event.tag.id.toHEX()
-                        tags.follow(tag = event.tag)
+                    is NFCTags.Event.OnFollowing -> {
+                        println("[MainScreen]:nfc:event:tag: ${event.id.toHEX()}") // todo
+                        tagState.value = event.id.toHEX()
                     }
                     is NFCTags.Event.OnResponse -> {
                         event.result.fold(
@@ -94,7 +93,7 @@ internal fun MainScreen() {
                     .height(48.dp)
                     .clickable {
                         when (state) {
-                            NFCTags.State.Stopped -> tags.start(activity = activity)
+                            NFCTags.State.Stopped -> tags.start(activity = activity, lifecycle = activity.lifecycle)
                             else -> tags.stop()
                         }
                     }
@@ -109,7 +108,7 @@ internal fun MainScreen() {
                     .fillMaxWidth()
                     .height(48.dp)
                     .wrapContentSize(),
-                text = if (state == NFCTags.State.Following) tagState.value.orEmpty() else "",
+                text = tagState.value.orEmpty(),
             )
         }
     }

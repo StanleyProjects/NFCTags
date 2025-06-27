@@ -19,7 +19,7 @@ import sp.gx.core.getByName
 import sp.gx.core.kebabCase
 import sp.gx.core.task
 
-version = "0.1.1"
+version = "0.2.0"
 
 val maven = Maven.Artifact(
     group = "com.github.kepocnhh",
@@ -293,4 +293,5 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
     testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.profileinstaller:profileinstaller:1.4.1")
 }
