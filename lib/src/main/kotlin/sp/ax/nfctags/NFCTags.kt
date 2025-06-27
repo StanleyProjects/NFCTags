@@ -1,7 +1,6 @@
 package sp.ax.nfctags
 
-import android.app.Activity
-import androidx.lifecycle.Lifecycle
+import androidx.activity.ComponentActivity
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -21,7 +20,7 @@ interface NFCTags {
     val states: StateFlow<State>
     val events: SharedFlow<Event>
 
-    fun start(activity: Activity, lifecycle: Lifecycle)
+    fun start(activity: ComponentActivity)
     fun transceive(bytes: ByteArray)
     fun unfollow()
     fun stop()

@@ -1,8 +1,8 @@
 package sp.ax.nfctags
 
-import android.app.Activity
 import android.nfc.NfcAdapter
 import android.nfc.tech.IsoDep
+import androidx.activity.ComponentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CoroutineScope
@@ -43,9 +43,11 @@ class RealNFCTags(
 
     private val mutex = Mutex()
 
-    override fun start(activity: Activity, lifecycle: Lifecycle) {
+    override fun start(activity: ComponentActivity) {
+        if (_states.value != null) return
         val job = SupervisorJob()
         val coroutineScope = CoroutineScope(default + job)
+        val lifecycle = activity.lifecycle
         coroutineScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 NFCTagsReceivers.adapter(context = activity).collect { isEnabled ->
@@ -64,7 +66,7 @@ class RealNFCTags(
                 }
             }
         }
-        val adapter = NfcAdapter.getDefaultAdapter(activity)
+        val adapter = NfcAdapter.getDefaultAdapter(activity) ?: TODO("No adapter!")
         coroutineScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 callbackFlow<Unit> {
