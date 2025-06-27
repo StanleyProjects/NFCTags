@@ -93,7 +93,7 @@ internal fun MainScreen() {
                     .height(48.dp)
                     .clickable {
                         when (state) {
-                            NFCTags.State.Stopped -> tags.start(activity = activity)
+                            NFCTags.State.Stopped -> tags.start(activity = activity, lifecycle = activity.lifecycle)
                             else -> tags.stop()
                         }
                     }
