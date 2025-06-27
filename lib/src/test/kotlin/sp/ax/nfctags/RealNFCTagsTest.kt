@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.nfc.NfcAdapter
 import android.nfc.NfcManager
+import android.nfc.Tag
+import android.nfc.tech.TagTechnology
+import android.os.Bundle
 import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -14,10 +17,12 @@ import kotlinx.coroutines.flow.collectIndexed
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,8 +31,10 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
+import org.robolectric.shadows.ShadowIsoDep
 import org.robolectric.shadows.ShadowNfcAdapter
 import org.robolectric.shadows.ShadowServiceManager
+import org.robolectric.util.ReflectionHelpers
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration.Companion.seconds
 
@@ -52,9 +59,19 @@ internal class RealNFCTagsTest {
         scheduler: TestCoroutineScheduler,
         block: suspend (NFCTags) -> Unit,
     ) {
+        onRealNFCTags(
+            main = StandardTestDispatcher(scheduler, "real:tags:main"),
+            default = StandardTestDispatcher(scheduler, "real:tags:default"),
+            block = block,
+        )
+    }
+
+    private suspend fun onRealNFCTags(
+        main: CoroutineContext,
+        default: CoroutineContext = main,
+        block: suspend (NFCTags) -> Unit,
+    ) {
         val job = SupervisorJob()
-        val main: CoroutineContext = StandardTestDispatcher(scheduler, "real:tags:main")
-        val default: CoroutineContext = StandardTestDispatcher(scheduler, "real:tags:default")
         val tags = RealNFCTags(
             coroutineScope = CoroutineScope(main + job),
             default = default + job,
@@ -230,6 +247,64 @@ internal class RealNFCTagsTest {
                                         tags.stop()
                                     }
                                     4 -> assertEquals(NFCTags.State.Stopped, state)
+                                    else -> error("Index $index is unexpected!")
+                                }
+                            }
+                        }.join {
+                            tags.start(activity = activity)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun mockTag(
+        id: ByteArray = byteArrayOf(),
+        techList: IntArray = intArrayOf(),
+    ): Tag {
+        return ReflectionHelpers.callStaticMethod(
+            Tag::class.java,
+            "createMockTag",
+            ReflectionHelpers.ClassParameter.from(ByteArray::class.java, id),
+            ReflectionHelpers.ClassParameter.from(IntArray::class.java, techList),
+            ReflectionHelpers.ClassParameter.from(Array<Bundle>::class.java, arrayOf()),
+        )
+    }
+
+    @Test
+    fun followingTest() {
+        runTest(timeout = 6.seconds) {
+            onNfcAdapter { adapter ->
+                onRealNFCTags(testScheduler) { tags ->
+                    val id = byteArrayOf(0x01)
+                    launch(CoroutineName("events")) {
+                        tags.events.take(1).collect { event ->
+                            error("Event $event is unexpected!")
+                        }
+                    }.cancel {
+                        val controller = Robolectric.buildActivity(MockActivity::class.java)
+                            .create()
+                            .visible()
+                            .start()
+                            .resume()
+                        val activity = controller.get()
+                        launch(CoroutineName("states")) {
+                            tags.states.take(4).collectIndexed { index, state ->
+                                when (index) {
+                                    0 -> assertEquals(NFCTags.State.Stopped, state)
+                                    1 -> {
+                                        val currentState = activity.lifecycle.currentState
+                                        assertTrue("Current state: $currentState", currentState >= Lifecycle.State.RESUMED)
+                                        assertEquals(NFCTags.State.Searching, state)
+                                        delay(1.seconds)
+//                                        val tag = ShadowNfcAdapter.createMockTag() ?: TODO("RealNFCTagsTest:followingTest:no tag!")
+                                        val tag = mockTag(id = id, techList = intArrayOf(3))
+                                        ShadowIsoDep.newInstance()
+                                        Shadows.shadowOf(adapter).dispatchTagDiscovered(tag)
+                                    }
+                                    2 -> assertEquals(NFCTags.State.Following, state)
+                                    3 -> assertEquals(NFCTags.State.Stopped, state)
                                     else -> error("Index $index is unexpected!")
                                 }
                             }

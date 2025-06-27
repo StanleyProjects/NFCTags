@@ -90,10 +90,15 @@ class RealNFCTags(
                     if (state is InternalState.Searching && state.tt == null) {
                         runCatching {
                             if (tag.id == null) TODO("RealNFCTags:tag:no id!")
-                            IsoDep.get(tag)
-                        }.onSuccess { tt ->
-                            _states.value = InternalState.Searching(tt = tt)
-                        }
+                            IsoDep.get(tag) ?: TODO("RealNFCTags:tag:no tag technology!")
+                        }.fold(
+                            onFailure = { error ->
+                                println("[RealNFCTags]:tag:error: $error") // todo
+                            },
+                            onSuccess = { tt ->
+                                _states.value = InternalState.Searching(tt = tt)
+                            },
+                        )
                     }
                 }
             }
