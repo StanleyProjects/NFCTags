@@ -51,7 +51,6 @@ class RealNFCTags(
         coroutineScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 NFCTagsReceivers.adapter(context = activity).collect { isEnabled ->
-                    println("[RealNFCTags]:isEnabled: $isEnabled") // todo
                     mutex.withLock {
                         if (isEnabled) {
                             if (_states.value == InternalState.Waiting) {
@@ -70,12 +69,10 @@ class RealNFCTags(
         coroutineScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 callbackFlow<Unit> {
-                    println("[RealNFCTags]:on:resume: ${_states.value}") // todo
                     if (_states.value == InternalState.Waiting && adapter.isEnabled) {
                         _states.value = InternalState.Searching(tt = null)
                     }
                     awaitClose {
-                        println("[RealNFCTags]:on:pause: ${_states.value}") // todo
                         if (_states.value != null) {
                             _states.value = InternalState.Waiting
                         }
@@ -91,14 +88,9 @@ class RealNFCTags(
                         runCatching {
                             if (tag.id == null) TODO("RealNFCTags:tag:no id!")
                             IsoDep.get(tag) ?: TODO("RealNFCTags:tag:no tag technology!")
-                        }.fold(
-                            onFailure = { error ->
-                                println("[RealNFCTags]:tag:error: $error") // todo
-                            },
-                            onSuccess = { tt ->
-                                _states.value = InternalState.Searching(tt = tt)
-                            },
-                        )
+                        }.onSuccess { tt: IsoDep ->
+                            _states.value = InternalState.Searching(tt = tt)
+                        }
                     }
                 }
             }
@@ -109,7 +101,6 @@ class RealNFCTags(
             _states.collect { newState ->
                 val oldState = state
                 state = newState
-                println("[RealNFCTags]:state: $oldState -> $newState") // todo
                 if (oldState is InternalState.Searching) {
                     if (newState !is InternalState.Searching) {
                         adapter.disableReaderMode(activity)
