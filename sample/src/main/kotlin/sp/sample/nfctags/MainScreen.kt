@@ -24,7 +24,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import sp.ax.nfctags.NFCTags
-import sp.kx.bytes.toHEX
+import sp.kx.bytes.hex
 
 @Composable
 internal fun MainScreen() {
@@ -37,7 +37,7 @@ internal fun MainScreen() {
             NFCTags.State.Following -> {
                 val ints = intArrayOf(0x30, 0x00)
                 val bytes = ints.map { it.toByte() }.toByteArray()
-                println("[MainScreen]:transceive: ${bytes.toHEX()}") // todo
+                println("[MainScreen]:transceive: ${bytes.hex()}") // todo
                 tags.transceive(bytes = bytes)
             }
             else -> {
@@ -50,13 +50,13 @@ internal fun MainScreen() {
             tags.events.collect { event ->
                 when (event) {
                     is NFCTags.Event.OnFollowing -> {
-                        println("[MainScreen]:nfc:event:tag: ${event.id.toHEX()}") // todo
-                        tagState.value = event.id.toHEX()
+                        println("[MainScreen]:nfc:event:tag: ${event.id.hex()}") // todo
+                        tagState.value = event.id.hex()
                     }
                     is NFCTags.Event.OnResponse -> {
                         event.result.fold(
                             onSuccess = { bytes ->
-                                println("[MainScreen]:nfc:event:response: ${bytes.toHEX()}") // todo
+                                println("[MainScreen]:nfc:event:response: ${bytes.hex()}") // todo
                                 tags.unfollow()
                             },
                             onFailure = { error ->
@@ -93,7 +93,7 @@ internal fun MainScreen() {
                     .height(48.dp)
                     .clickable {
                         when (state) {
-                            NFCTags.State.Stopped -> tags.start(activity = activity, lifecycle = activity.lifecycle)
+                            NFCTags.State.Stopped -> tags.start(activity = activity)
                             else -> tags.stop()
                         }
                     }
